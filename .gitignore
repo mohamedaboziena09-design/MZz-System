@@ -1,0 +1,38 @@
+# ── Python ──────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# ── Virtual environments ─────────────────────────────────────
+.venv/
+venv/
+env/
+
+# ── Database (never commit the live DB) ─────────────────────
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# ── Uploaded files ───────────────────────────────────────────
+uploads/photos/*
+uploads/documents/*
+!uploads/photos/.gitkeep
+!uploads/documents/.gitkeep
+
+# ── OS & IDE ─────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── Test artifacts ───────────────────────────────────────────
+.pytest_cache/
+htmlcov/
+.coverage

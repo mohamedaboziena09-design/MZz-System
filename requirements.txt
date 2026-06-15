@@ -1,0 +1,7 @@
+# MZz System V1 — Python dependencies
+#
+# The validator is built-in (stdlib only).
+# No third-party packages are required to run the system.
+#
+# Optional — only needed if you switch SchemaLoader to use jsonschema:
+# jsonschema>=4.20.0

@@ -1,0 +1,48 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "document",
+  "title": "Document",
+  "description": "Schema for validating documents attached to an employee in MZz System V1.",
+  "type": "object",
+  "required": [
+    "employee_id",
+    "document_type",
+    "file_name",
+    "file_path"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "employee_id": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Foreign key referencing the employee this document belongs to."
+    },
+    "document_type": {
+      "type": "string",
+      "enum": [
+        "national_id_copy",
+        "employment_contract",
+        "certificate",
+        "resume",
+        "other"
+      ],
+      "description": "Category of the document."
+    },
+    "file_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "description": "Original filename as uploaded by the user."
+    },
+    "file_path": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Relative path to the stored file (managed by FileStore)."
+    },
+    "notes": {
+      "type": ["string", "null"],
+      "maxLength": 500,
+      "description": "Optional notes or description about this document."
+    }
+  }
+}

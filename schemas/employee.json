@@ -1,0 +1,96 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "employee",
+  "title": "Employee",
+  "description": "Schema for validating employee records in MZz System V1.",
+  "type": "object",
+  "required": [
+    "first_name",
+    "last_name",
+    "national_id",
+    "date_of_birth",
+    "gender",
+    "hire_date",
+    "department",
+    "position"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "first_name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 50,
+      "description": "Employee's first name."
+    },
+    "last_name": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 50,
+      "description": "Employee's last name."
+    },
+    "national_id": {
+      "type": "string",
+      "minLength": 5,
+      "maxLength": 20,
+      "description": "National ID or passport number. Must be unique across all employees."
+    },
+    "date_of_birth": {
+      "type": "string",
+      "format": "date",
+      "description": "Date of birth in ISO 8601 format (YYYY-MM-DD)."
+    },
+    "gender": {
+      "type": "string",
+      "enum": ["male", "female"],
+      "description": "Employee's gender."
+    },
+    "phone": {
+      "type": ["string", "null"],
+      "pattern": "^\\+?[0-9]{7,15}$",
+      "description": "Phone number, optionally prefixed with country code (e.g. +201234567890)."
+    },
+    "email": {
+      "type": ["string", "null"],
+      "format": "email",
+      "maxLength": 254,
+      "description": "Work or personal email address."
+    },
+    "address": {
+      "type": ["string", "null"],
+      "maxLength": 255,
+      "description": "Full residential address."
+    },
+    "department": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 100,
+      "description": "Department the employee belongs to (e.g. Engineering, HR)."
+    },
+    "position": {
+      "type": "string",
+      "minLength": 2,
+      "maxLength": 100,
+      "description": "Job title or position (e.g. Software Engineer, Accountant)."
+    },
+    "hire_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the employee was hired in ISO 8601 format (YYYY-MM-DD)."
+    },
+    "employment_status": {
+      "type": "string",
+      "enum": ["active", "inactive", "terminated"],
+      "default": "active",
+      "description": "Current employment status."
+    },
+    "photo_path": {
+      "type": ["string", "null"],
+      "description": "Relative path to the employee's profile photo (managed by FileStore)."
+    },
+    "notes": {
+      "type": ["string", "null"],
+      "maxLength": 1000,
+      "description": "Optional free-text notes about the employee."
+    }
+  }
+}
