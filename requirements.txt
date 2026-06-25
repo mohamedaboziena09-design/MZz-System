@@ -1,7 +1,26 @@
-# MZz System V1 — Python dependencies
-#
-# The validator is built-in (stdlib only).
-# No third-party packages are required to run the system.
-#
-# Optional — only needed if you switch SchemaLoader to use jsonschema:
-# jsonschema>=4.20.0
+# ============================================================
+# MZz System V1 — Requirements
+# ============================================================
+# تثبيت الكل:
+#   pip install -r requirements.txt
+# ============================================================
+
+# ── UI ───────────────────────────────────────────────────────
+customtkinter==5.2.2
+Pillow==10.3.0
+
+# ── API Layer ────────────────────────────────────────────────
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9
+aiofiles==23.2.1
+pydantic==2.7.1
+
+# ── PDF Export (اختياري) ────────────────────────────────────
+reportlab==4.1.0
+
+# ── Build ────────────────────────────────────────────────────
+pyinstaller==6.6.0
+
+# ── Dev / Testing ────────────────────────────────────────────
+pytest==8.2.0

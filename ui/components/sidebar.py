@@ -1,25 +1,24 @@
 """
 ui/components/sidebar.py
-========================
-Main navigation sidebar used inside MainWindow.
-
-Items are defined as a list of (icon, label, screen_key) tuples.
-The active item is highlighted; clicking calls the navigate callback.
+=========================
+Sidebar navigation — updated to include Vehicles & Reports.
 """
 
 from __future__ import annotations
 
 from typing import Callable
 import customtkinter as ctk
-from ui.theme import COLORS, FONTS, SIDEBAR_WIDTH, RADIUS
 
-# Navigation items: (icon, label, screen_key)
+from ui.theme import COLORS, FONTS, RADIUS, SIDEBAR_WIDTH
+
+# Nav items: (key, icon, label, section_header_before)
 NAV_ITEMS = [
-    ("⊞",  "Dashboard",  "dashboard"),
-    ("👤", "Persons",    "persons"),
-    ("👥", "Employees",  "employees"),
-    ("📄", "Reports",    "reports"),
-    ("⚙",  "Settings",  "settings"),
+    ("dashboard", "🏠", "لوحة التحكم",        "الرئيسية"),
+    ("employees", "👔", "الموظفين",            "إدارة الأشخاص"),
+    ("persons",   "👥", "العملاء والأشخاص",   None),
+    ("vehicles",  "🚗", "السيارات",            "الأصول"),
+    ("reports",   "📊", "التقارير",            "التقارير"),
+    ("settings",  "⚙️", "الإعدادات",          "النظام"),
 ]
 
 
@@ -27,20 +26,17 @@ class Sidebar(ctk.CTkFrame):
     """
     Parameters
     ----------
-    parent      : parent widget
-    on_navigate : Callable[[str], None]
-        Called with the screen_key when a nav item is clicked.
-    on_logout   : Callable[[], None]
-        Called when the Logout button is clicked.
+    parent       : parent widget
+    on_navigate  : Callable[[str], None]
+    on_logout    : Callable
     company_name : str
-        Displayed at the top of the sidebar.
     """
 
     def __init__(
         self,
         parent,
-        on_navigate: Callable[[str], None],
-        on_logout: Callable[[], None],
+        on_navigate:  Callable[[str], None],
+        on_logout:    Callable,
         company_name: str = "MZz System",
     ) -> None:
         super().__init__(
@@ -50,108 +46,133 @@ class Sidebar(ctk.CTkFrame):
             corner_radius=0,
         )
         self.pack_propagate(False)
+        self.grid_propagate(False)
 
         self._on_navigate  = on_navigate
         self._on_logout    = on_logout
-        self._active_key   = "dashboard"
+        self._company_name = company_name
         self._buttons: dict[str, ctk.CTkButton] = {}
+        self._active_key: str = ""
 
-        self._build(company_name)
+        self._build()
 
-    # ──────────────────────────────────────────────────────────
-    # Build
-    # ──────────────────────────────────────────────────────────
+    # ── Build ─────────────────────────────────────────────────
 
-    def _build(self, company_name: str) -> None:
-        # ── Brand ────────────────────────────────────────────
-        brand = ctk.CTkFrame(self, fg_color="transparent")
-        brand.pack(fill="x", padx=16, pady=(24, 8))
+    def _build(self) -> None:
+        # ── Logo ────────────────────────────────────────────
+        logo_frame = ctk.CTkFrame(
+            self, fg_color=COLORS["surface"],
+            corner_radius=0, height=64,
+        )
+        logo_frame.pack(fill="x")
+        logo_frame.pack_propagate(False)
 
         ctk.CTkLabel(
-            brand,
+            logo_frame,
             text="MZz",
-            font=FONTS["heading"],
+            font=FONTS["title"],
             text_color=COLORS["accent"],
             anchor="w",
-        ).pack(anchor="w")
+        ).pack(side="left", padx=(20, 4), pady=16)
 
         ctk.CTkLabel(
-            brand,
-            text=company_name,
-            font=FONTS["caption"],
+            logo_frame,
+            text="System",
+            font=FONTS["subtitle"],
+            text_color=COLORS["text_muted"],
+            anchor="w",
+        ).pack(side="left", pady=16)
+
+        # Bottom border under logo
+        ctk.CTkFrame(self, height=1, fg_color=COLORS["border"],
+                     corner_radius=0).pack(fill="x")
+
+        # ── Company name ─────────────────────────────────────
+        ctk.CTkLabel(
+            self,
+            text=self._company_name,
+            font=FONTS["body_sm"],
             text_color=COLORS["text_dim"],
             anchor="w",
-            wraplength=SIDEBAR_WIDTH - 32,
-        ).pack(anchor="w")
-
-        # ── Divider ──────────────────────────────────────────
-        ctk.CTkFrame(
-            self, height=1, fg_color=COLORS["border"]
-        ).pack(fill="x", padx=16, pady=(12, 16))
+        ).pack(fill="x", padx=20, pady=(10, 4))
 
         # ── Nav items ────────────────────────────────────────
-        nav_frame = ctk.CTkFrame(self, fg_color="transparent")
-        nav_frame.pack(fill="x", padx=8)
+        nav_frame = ctk.CTkFrame(self, fg_color="transparent", corner_radius=0)
+        nav_frame.pack(fill="both", expand=True, pady=(4, 0))
 
-        for icon, label, key in NAV_ITEMS:
+        last_section = None
+        for key, icon, label, section in NAV_ITEMS:
+            # Section header
+            if section and section != last_section:
+                ctk.CTkLabel(
+                    nav_frame,
+                    text=section.upper(),
+                    font=FONTS["caption"],
+                    text_color=COLORS["text_dim"],
+                    anchor="w",
+                ).pack(fill="x", padx=20, pady=(14, 2))
+                last_section = section
+
             btn = ctk.CTkButton(
                 nav_frame,
-                text=f"  {icon}   {label}",
+                text=f"  {icon}  {label}",
+                font=FONTS["body"],
                 anchor="w",
                 height=40,
                 corner_radius=RADIUS["md"],
                 fg_color="transparent",
-                hover_color=COLORS["surface3"],
+                hover_color=COLORS["sidebar_item"],
                 text_color=COLORS["text_muted"],
-                font=FONTS["body"],
-                command=lambda k=key: self._click(k),
+                border_width=0,
+                command=lambda k=key: self._navigate(k),
             )
-            btn.pack(fill="x", pady=2)
+            btn.pack(fill="x", padx=10, pady=1)
             self._buttons[key] = btn
 
-        # ── Spacer ───────────────────────────────────────────
-        ctk.CTkFrame(self, fg_color="transparent").pack(fill="both", expand=True)
+        # ── Bottom: version + logout ─────────────────────────
+        bottom = ctk.CTkFrame(self, fg_color="transparent", corner_radius=0)
+        bottom.pack(fill="x", side="bottom", padx=10, pady=12)
 
-        # ── Logout ───────────────────────────────────────────
-        ctk.CTkFrame(
-            self, height=1, fg_color=COLORS["border"]
-        ).pack(fill="x", padx=16, pady=(0, 12))
+        ctk.CTkFrame(self, height=1, fg_color=COLORS["border"],
+                     corner_radius=0).pack(fill="x", side="bottom")
 
         ctk.CTkButton(
-            self,
-            text="  ⏻   Logout",
+            bottom,
+            text="  🚪  تسجيل الخروج",
+            font=FONTS["body"],
             anchor="w",
             height=40,
             corner_radius=RADIUS["md"],
             fg_color="transparent",
             hover_color=COLORS["error_dim"],
             text_color=COLORS["text_muted"],
-            font=FONTS["body"],
             command=self._on_logout,
-        ).pack(fill="x", padx=8, pady=(0, 16))
+        ).pack(fill="x")
 
-    # ──────────────────────────────────────────────────────────
-    # State
-    # ──────────────────────────────────────────────────────────
+        ctk.CTkLabel(
+            bottom,
+            text="MZz System  V1.2",
+            font=FONTS["caption"],
+            text_color=COLORS["text_dim"],
+            anchor="w",
+        ).pack(fill="x", padx=8, pady=(6, 0))
 
-    def _click(self, key: str) -> None:
+    # ── Navigation ────────────────────────────────────────────
+
+    def _navigate(self, key: str) -> None:
         self.set_active(key)
         self._on_navigate(key)
 
     def set_active(self, key: str) -> None:
         """Highlight the active nav item."""
-        # Reset previous
-        if self._active_key in self._buttons:
+        if self._active_key and self._active_key in self._buttons:
             self._buttons[self._active_key].configure(
                 fg_color="transparent",
                 text_color=COLORS["text_muted"],
-                font=FONTS["body"],
             )
-        # Activate new
         self._active_key = key
         if key in self._buttons:
             self._buttons[key].configure(
                 fg_color=COLORS["accent_dim"],
                 text_color=COLORS["accent"],
-                font=FONTS["body_sm"],
             )
