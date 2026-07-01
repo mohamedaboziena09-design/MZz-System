@@ -1,165 +1,260 @@
 """
-build.py
-=========
-سكريبت البناء الكامل لـ MZz System V1
+build.py — V2.1
+=================
+سكريبت البناء الكامل لـ MZz System V2.1
 يقوم بـ:
 1. التحقق من المتطلبات
 2. إنشاء أيقونة التطبيق
-3. بناء التطبيق بـ PyInstaller
-4. نسخ الملفات الضرورية
-5. إنشاء مجلد dist جاهز للتوزيع
+3. تنظيف بناء سابق
+4. بناء التطبيق بـ PyInstaller
+5. نسخ الملفات الضرورية
+6. إنشاء مجلد dist جاهز للتوزيع
+7. إنشاء ملف إرشادات التشغيل
 
 التشغيل:
     python build.py
+    python build.py --clean     # تنظيف فقط
+    python build.py --no-icon   # بدون أيقونة مخصصة
 """
 
 from __future__ import annotations
 
+import argparse
 import os
-import sys
+import pathlib
 import shutil
 import subprocess
-import pathlib
+import sys
+import json
+from datetime import datetime
 
 # ── Paths ─────────────────────────────────────────────────────
 ROOT     = pathlib.Path(__file__).parent
 DIST     = ROOT / "dist" / "MZz-System"
 ASSETS   = ROOT / "assets"
-DATA_DIR = ROOT / "data"
+APP_DATA = ROOT / ".app_data"
 
+# ── Colors for terminal ───────────────────────────────────────
+GREEN  = "\033[92m"
+YELLOW = "\033[93m"
+RED    = "\033[91m"
+BLUE   = "\033[94m"
+RESET  = "\033[0m"
+BOLD   = "\033[1m"
+
+def ok(msg):   print(f"   {GREEN}✅  {msg}{RESET}")
+def warn(msg): print(f"   {YELLOW}⚠️   {msg}{RESET}")
+def err(msg):  print(f"   {RED}❌  {msg}{RESET}")
+def info(msg): print(f"   {BLUE}ℹ️   {msg}{RESET}")
+def step(msg): print(f"\n{BOLD}{msg}{RESET}")
+
+
+# ════════════════════════════════════════════════════════════
+# Step 1: Check Requirements
+# ════════════════════════════════════════════════════════════
 
 def check_requirements() -> None:
-    print("⚙️  التحقق من المتطلبات...")
-    # تحقق بـ pip list بدل __import__ لتجنب مشاكل الـ import
-    import subprocess as sp
-    result = sp.run(
+    step("1️⃣   التحقق من المتطلبات...")
+
+    result = subprocess.run(
         [sys.executable, "-m", "pip", "show",
          "pyinstaller", "customtkinter", "Pillow"],
         capture_output=True, text=True,
     )
     found = {
-        line.split(": ")[1].lower()
+        line.split(": ")[1].strip().lower()
         for line in result.stdout.splitlines()
         if line.startswith("Name:")
     }
-    required = {"pyinstaller": "pyinstaller",
-                "customtkinter": "customtkinter",
-                "pillow": "Pillow"}
+    required = {
+        "pyinstaller":   "pip install pyinstaller",
+        "customtkinter": "pip install customtkinter",
+        "pillow":        "pip install Pillow",
+    }
     all_ok = True
-    for key, install_name in required.items():
-        if key in found:
-            print(f"   ✅  {install_name}")
+    for pkg, install_cmd in required.items():
+        if pkg in found:
+            ok(pkg)
         else:
-            print(f"   ❌  {install_name} غير مثبت — شغّل: pip install {install_name}")
+            err(f"{pkg} غير مثبت  →  {install_cmd}")
             all_ok = False
+
+    # Optional
+    opt_result = subprocess.run(
+        [sys.executable, "-m", "pip", "show", "reportlab"],
+        capture_output=True, text=True,
+    )
+    if "Name:" in opt_result.stdout:
+        ok("reportlab (PDF — اختياري)")
+    else:
+        warn("reportlab غير مثبت — ميزة PDF لن تعمل  →  pip install reportlab")
+
     if not all_ok:
+        err("ثبّت المتطلبات الناقصة ثم أعد التشغيل.")
         sys.exit(1)
 
 
-def create_icon() -> None:
-    """إنشاء أيقونة بسيطة لو مش موجودة."""
+# ════════════════════════════════════════════════════════════
+# Step 2: Create Icon
+# ════════════════════════════════════════════════════════════
+
+def create_icon(skip: bool = False) -> bool:
+    step("2️⃣   إنشاء أيقونة التطبيق...")
     ASSETS.mkdir(exist_ok=True)
     icon_path = ASSETS / "icon.ico"
+
+    if skip:
+        warn("تم تخطي إنشاء الأيقونة (--no-icon)")
+        return False
+
     if icon_path.exists():
-        print("✅  الأيقونة موجودة")
-        return
-    print("🎨  إنشاء أيقونة افتراضية...")
+        ok(f"الأيقونة موجودة: {icon_path}")
+        return True
+
     try:
         from PIL import Image, ImageDraw, ImageFont
-        sizes = [16, 32, 48, 64, 128, 256]
+        sizes  = [16, 32, 48, 64, 128, 256]
         images = []
         for size in sizes:
             img  = Image.new("RGBA", (size, size), (15, 17, 23, 255))
             draw = ImageDraw.Draw(img)
-            # Circle background
-            margin = size // 8
-            draw.ellipse(
-                [margin, margin, size - margin, size - margin],
-                fill=(79, 110, 247, 255),
-            )
-            # Text "M"
-            font_size = size // 2
+            m    = size // 8
+            draw.ellipse([m, m, size - m, size - m],
+                         fill=(79, 110, 247, 255))
+            fs = size // 2
             try:
-                font = ImageFont.truetype("arial.ttf", font_size)
+                font = ImageFont.truetype("arial.ttf", fs)
             except Exception:
                 font = ImageFont.load_default()
-            draw.text(
-                (size // 2, size // 2),
-                "M", fill="white", font=font, anchor="mm",
-            )
+            draw.text((size // 2, size // 2), "M",
+                      fill="white", font=font, anchor="mm")
             images.append(img)
+
         images[0].save(
             icon_path, format="ICO",
             sizes=[(s, s) for s in sizes],
             append_images=images[1:],
         )
-        print(f"   ✅  أيقونة تم إنشاؤها: {icon_path}")
+        ok(f"تم إنشاء الأيقونة: {icon_path}")
+        return True
     except Exception as e:
-        print(f"   ⚠️  تعذر إنشاء الأيقونة: {e}")
-        print("   سيتم البناء بدون أيقونة مخصصة.")
-        # Patch spec to remove icon
-        spec = ROOT / "mzz_system.spec"
-        if spec.exists():
-            content = spec.read_text(encoding="utf-8")
-            content = content.replace('icon="assets/icon.ico",', "")
-            spec.write_text(content, encoding="utf-8")
+        warn(f"تعذر إنشاء الأيقونة: {e} — سيتم البناء بدون أيقونة مخصصة")
+        return False
 
 
-def ensure_data_dir() -> None:
-    """تأكد أن مجلد data موجود مع config.json فارغ لو مش موجود."""
-    DATA_DIR.mkdir(exist_ok=True)
-    config = DATA_DIR / "config.json"
-    if not config.exists():
-        import json
-        config.write_text(
-            json.dumps({
-                "company_name":   "",
-                "admin_username": "",
-                "admin_password": "",
-                "setup_complete": False,
-            }, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-        print("   ✅  config.json تم إنشاؤه (فارغ — سيظهر إعداد أول تشغيل)")
+# ════════════════════════════════════════════════════════════
+# Step 3: Clean Previous Build
+# ════════════════════════════════════════════════════════════
+
+def clean() -> None:
+    step("3️⃣   تنظيف البناء السابق...")
+    for folder in ["dist", "build", "__pycache__"]:
+        p = ROOT / folder
+        if p.exists():
+            shutil.rmtree(p)
+            ok(f"تم حذف: {folder}/")
+    for spec in ROOT.glob("*.spec.bak"):
+        spec.unlink()
+    ok("مجلد البناء نظيف")
 
 
-def build() -> None:
-    print("\n🔨  بناء التطبيق بـ PyInstaller...")
-    result = subprocess.run(
-        [sys.executable, "-m", "PyInstaller",
-         "--clean",
-         "mzz_system.spec"],
-        cwd=ROOT,
-    )
+# ════════════════════════════════════════════════════════════
+# Step 4: Build with PyInstaller
+# ════════════════════════════════════════════════════════════
+
+def build(has_icon: bool) -> None:
+    step("4️⃣   بناء التطبيق بـ PyInstaller...")
+
+    icon_arg = ["--icon", str(ASSETS / "icon.ico")] if has_icon else []
+
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--clean",
+        "--noconfirm",
+        "--onedir",
+        "--windowed",                       # لا نافذة CMD
+        "--name", "MZz-System",
+        "--distpath", str(ROOT / "dist"),
+        "--workpath", str(ROOT / "build"),
+
+        # ── Hidden imports ──────────────────────────────────
+        "--hidden-import", "customtkinter",
+        "--hidden-import", "PIL",
+        "--hidden-import", "PIL._tkinter_finder",
+        "--hidden-import", "sqlite3",
+        "--hidden-import", "src.crud_service",
+        "--hidden-import", "src.file_store",
+        "--hidden-import", "src.schema_loader",
+        "--hidden-import", "src.employee_code_generator",
+        "--hidden-import", "src.workspace",
+        "--hidden-import", "src.context",
+        "--hidden-import", "src.session",
+        "--hidden-import", "src.api_client",
+        "--hidden-import", "ui.app",
+        "--hidden-import", "ui.theme",
+        "--hidden-import", "ui.components.sidebar",
+        "--hidden-import", "ui.components.field",
+        "--hidden-import", "ui.components.divider",
+        "--hidden-import", "ui.screens.workspace_setup",
+        "--hidden-import", "ui.screens.dashboard_screen",
+        "--hidden-import", "ui.screens.login_screen",
+        "--hidden-import", "ui.screens.main_window",
+        "--hidden-import", "ui.screens.setup_screen",
+        "--hidden-import", "ui.screens.employees.employees_list",
+        "--hidden-import", "ui.screens.employees.employee_form",
+        "--hidden-import", "ui.screens.employees.employee_profile",
+        "--hidden-import", "ui.screens.persons.persons_list",
+        "--hidden-import", "ui.screens.persons.person_form",
+        "--hidden-import", "ui.screens.vehicles.vehicles_screen",
+        "--hidden-import", "ui.screens.reports.reports_screen",
+        "--hidden-import", "ui.screens.settings.settings_screen",
+        "--hidden-import", "ui.screens.storage.backup_manager",
+        "--hidden-import", "ui.screens.storage.data_location_manager",
+        "--hidden-import", "reportlab",
+
+        # ── Data files ──────────────────────────────────────
+        "--add-data", f"{ROOT / 'migrations'}{os.pathsep}migrations",
+        "--add-data", f"{ROOT / 'schemas'}{os.pathsep}schemas",
+
+        # ── Collect customtkinter ───────────────────────────
+        "--collect-all", "customtkinter",
+
+        # ── Exclude unused ──────────────────────────────────
+        "--exclude-module", "matplotlib",
+        "--exclude-module", "numpy",
+        "--exclude-module", "pandas",
+        "--exclude-module", "scipy",
+        "--exclude-module", "pytest",
+
+        *icon_arg,
+
+        # ── Entry point ─────────────────────────────────────
+        str(ROOT / "run.py"),
+    ]
+
+    result = subprocess.run(cmd, cwd=ROOT)
     if result.returncode != 0:
-        print("\n❌  فشل البناء! راجع الأخطاء أعلاه.")
+        err("فشل البناء! راجع الأخطاء أعلاه.")
         sys.exit(1)
-    print("✅  البناء اكتمل!")
+    ok("اكتمل البناء بنجاح!")
 
+
+# ════════════════════════════════════════════════════════════
+# Step 5: Post-build Setup
+# ════════════════════════════════════════════════════════════
 
 def post_build() -> None:
-    """نسخ ملفات ضرورية لمجلد dist."""
-    print("\n📦  تجهيز مجلد التوزيع...")
+    step("5️⃣   تجهيز مجلد التوزيع...")
 
     if not DIST.exists():
-        print(f"❌  مجلد dist غير موجود: {DIST}")
-        return
+        err(f"مجلد dist غير موجود: {DIST}")
+        sys.exit(1)
 
-    # إنشاء مجلدات ضرورية
-    for folder in ["uploads/photos/employees",
-                   "uploads/photos/persons",
-                   "uploads/documents/employees",
-                   "uploads/documents/persons",
-                   "uploads/reports",
-                   "data"]:
-        (DIST / folder).mkdir(parents=True, exist_ok=True)
-
-    # نسخ config.json لو موجود (بدون كلمة السر)
-    src_config = DATA_DIR / "config.json"
-    dst_config = DIST / "data" / "config.json"
-    if src_config.exists() and not dst_config.exists():
-        shutil.copy2(src_config, dst_config)
-        print("   ✅  config.json تم نسخه")
+    # مجلدات التطبيق الداخلية فقط (لا بيانات مستخدم)
+    internal_dirs = [".app_data"]
+    for d in internal_dirs:
+        (DIST / d).mkdir(parents=True, exist_ok=True)
+    ok("تم إنشاء .app_data/ (مؤشر Workspace)")
 
     # نسخ migrations
     src_mig = ROOT / "migrations"
@@ -168,40 +263,222 @@ def post_build() -> None:
         if dst_mig.exists():
             shutil.rmtree(dst_mig)
         shutil.copytree(src_mig, dst_mig)
-        print("   ✅  migrations تم نسخها")
+        ok("تم نسخ migrations/")
 
-    # إنشاء README للمستخدم
-    readme = DIST / "تعليمات_التشغيل.txt"
-    readme.write_text(
-        "MZz System V1\n"
-        "==============\n\n"
-        "طريقة التشغيل:\n"
-        "  انقر نقراً مزدوجاً على MZz-System.exe\n\n"
-        "أول تشغيل:\n"
-        "  سيظهر نافذة الإعداد — أدخل اسم الشركة واسم المستخدم وكلمة المرور\n\n"
-        "ملاحظات:\n"
-        "  - قاعدة البيانات تُحفظ في مجلد data/mzz.db\n"
-        "  - الصور والمستندات تُحفظ في مجلد uploads/\n"
-        "  - احتفظ بنسخة احتياطية من مجلد data/ بانتظام\n\n"
-        "الدعم الفني: MZz-Hub\n",
-        encoding="utf-8",
+    # نسخ schemas
+    src_sch = ROOT / "schemas"
+    dst_sch = DIST / "schemas"
+    if src_sch.exists():
+        if dst_sch.exists():
+            shutil.rmtree(dst_sch)
+        shutil.copytree(src_sch, dst_sch)
+        ok("تم نسخ schemas/")
+
+    ok(f"التطبيق جاهز في: {DIST}")
+
+
+# ════════════════════════════════════════════════════════════
+# Step 6: Version File
+# ════════════════════════════════════════════════════════════
+
+def write_version() -> None:
+    step("6️⃣   كتابة ملف الإصدار...")
+    version_info = {
+        "version":    "2.1.0",
+        "build_date": datetime.now().isoformat(),
+        "python":     sys.version.split()[0],
+    }
+    (DIST / "version.json").write_text(
+        json.dumps(version_info, indent=2), encoding="utf-8"
     )
-    print("   ✅  تعليمات التشغيل تم إنشاؤها")
+    ok("version.json")
 
-    print(f"\n🎉  التطبيق جاهز في: {DIST}")
-    print(f"     شغّل: {DIST / 'MZz-System.exe'}")
 
+# ════════════════════════════════════════════════════════════
+# Step 7: README
+# ════════════════════════════════════════════════════════════
+
+def write_readme() -> None:
+    step("7️⃣   كتابة ملف إرشادات التشغيل...")
+
+    content = """
+╔══════════════════════════════════════════════════════════════╗
+║              MZz System V2.1 — إرشادات التشغيل              ║
+╚══════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚀  طريقة تشغيل التطبيق
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  انقر نقراً مزدوجاً على:  MZz-System.exe
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📋  خطوات أول تشغيل
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  الخطوة 1 — اختيار مساحة العمل (Workspace)
+  ┌─────────────────────────────────────────────┐
+  │  ستظهر شاشة تطلب منك اختيار مجلد لحفظ     │
+  │  بيانات النظام.                             │
+  │                                             │
+  │  مثال:  D:\MZz-Workspace                   │
+  │         C:\Users\Mohamed\Documents\MZz      │
+  │                                             │
+  │  ⚠️  اختر مكاناً ثابتاً لا تحذفه           │
+  └─────────────────────────────────────────────┘
+
+  الخطوة 2 — الإعداد الأولي
+  ┌─────────────────────────────────────────────┐
+  │  أدخل:                                      │
+  │  • اسم الشركة                               │
+  │  • اسم المستخدم                             │
+  │  • كلمة المرور (8 أحرف على الأقل)           │
+  └─────────────────────────────────────────────┘
+
+  الخطوة 3 — تسجيل الدخول
+  ┌─────────────────────────────────────────────┐
+  │  أدخل بيانات الدخول التي اخترتها           │
+  │  ✅  فعّل "تذكرني" لتجاوز الدخول           │
+  │      في المرات القادمة                      │
+  └─────────────────────────────────────────────┘
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+📂  هيكل مساحة العمل (Workspace)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  MZz-Workspace/
+  ├── database/          ← قاعدة البيانات (mzz.db)
+  ├── uploads/           ← الصور والمستندات المرفقة
+  │   ├── photos/
+  │   └── documents/
+  ├── backups/           ← النسخ الاحتياطية التلقائية
+  ├── logs/              ← سجلات النظام الشهرية
+  └── config/            ← إعدادات الشركة والحساب
+
+  ⚠️  احتفظ بهذا المجلد دائماً
+  ⚠️  لا تنقله إلا من داخل التطبيق (الإعدادات ← التخزين)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+💾  النسخ الاحتياطي
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • يدوي:     من الشريط الجانبي ← النسخ الاحتياطي
+  • تلقائي:   يمكن جدولته كل X ساعة من نفس الشاشة
+  • الاستعادة: من نفس الشاشة — اختر ملف .zip
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔄  التحديث
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  1. قم بنسخ احتياطي أولاً
+  2. احذف المجلد القديم (MZz-System/)
+  3. ضع المجلد الجديد مكانه
+  4. شغّل MZz-System.exe
+  5. سيتعرف تلقائياً على مساحة العمل السابقة
+  ✅  بياناتك لن تُمس أبداً
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚗  ميزات V2.1
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ✅  إدارة الموظفين (CRUD كامل + صور + مستندات)
+  ✅  إدارة الأشخاص والعملاء
+  ✅  إدارة السيارات (تعيين + حركة + تاريخ)
+  ✅  التقارير والطباعة + تصدير PDF
+  ✅  نسخ احتياطي تلقائي ويدوي
+  ✅  فصل البيانات عن التطبيق (Workspace)
+  ✅  جلسة محفوظة (تذكرني)
+  ✅  إعدادات الشركة والحساب
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚙️  متطلبات التشغيل
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  • Windows 10 / 11 (64-bit)
+  • لا يحتاج Python مثبتاً
+  • مساحة التطبيق: ~80 MB
+  • مساحة البيانات: تعتمد على حجم الملفات
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🆘  المشاكل الشائعة
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ❌ "مساحة العمل غير موجودة"
+     → المجلد تم نقله أو حذفه
+     → اختر مجلداً جديداً من التحذير
+
+  ❌ "بيانات الدخول غير صحيحة"
+     → تحقق من اسم المستخدم وكلمة المرور
+     → كلمة المرور حساسة لحالة الأحرف
+
+  ❌ التطبيق لا يفتح
+     → تأكد أن Windows Defender لا يحجبه
+     → شغّل كـ Administrator
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MZz System V2.1  ·  MZz-Hub
+  Build Date: {build_date}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""".format(build_date=datetime.now().strftime("%Y-%m-%d"))
+
+    (DIST / "إرشادات_التشغيل.txt").write_text(
+        content.strip(), encoding="utf-8"
+    )
+    ok("إرشادات_التشغيل.txt")
+
+
+# ════════════════════════════════════════════════════════════
+# Summary
+# ════════════════════════════════════════════════════════════
+
+def print_summary() -> None:
+    exe  = DIST / "MZz-System.exe"
+    size = exe.stat().st_size / (1024 * 1024) if exe.exists() else 0
+
+    print(f"""
+{BOLD}{'═' * 56}{RESET}
+{GREEN}{BOLD}   ✅  MZz System V2.1 — تم البناء بنجاح!{RESET}
+{'═' * 56}
+
+   📦  الملف:    {DIST / 'MZz-System.exe'}
+   💽  الحجم:    {size:.1f} MB
+   📅  التاريخ:  {datetime.now().strftime('%Y-%m-%d  %H:%M')}
+
+   للتشغيل:
+   {BLUE}cd dist\\MZz-System && MZz-System.exe{RESET}
+
+{'═' * 56}
+""")
+
+
+# ════════════════════════════════════════════════════════════
+# Main
+# ════════════════════════════════════════════════════════════
 
 def main() -> None:
-    print("=" * 50)
-    print("   MZz System V1 — Build Script")
-    print("=" * 50)
+    parser = argparse.ArgumentParser(description="MZz System Build Script V2.1")
+    parser.add_argument("--clean",   action="store_true", help="تنظيف فقط بدون بناء")
+    parser.add_argument("--no-icon", action="store_true", help="بناء بدون أيقونة مخصصة")
+    args = parser.parse_args()
+
+    print(f"""
+{BOLD}{'═' * 56}
+   MZz System V2.1 — Build Script
+{'═' * 56}{RESET}""")
+
+    if args.clean:
+        clean()
+        ok("تم التنظيف.")
+        return
+
     check_requirements()
-    create_icon()
-    ensure_data_dir()
-    build()
+    has_icon = create_icon(skip=args.no_icon)
+    clean()
+    build(has_icon)
     post_build()
-    print("\n✅  العملية اكتملت بنجاح!")
+    write_version()
+    write_readme()
+    print_summary()
 
 
 if __name__ == "__main__":

@@ -1,304 +1,201 @@
 """
-ui/screens/login_screen.py
-==========================
-Login screen — validates username + password against data/config.json.
-Includes "Forgot Password" flow — resets password after verifying company name.
+ui/screens/login_screen.py — V2.1
+يستخدم SessionGuard للتحقق والجلسات.
 """
 
 from __future__ import annotations
 
-import hashlib
-import json
 import tkinter as tk
-from typing import Callable, Optional
+from typing import Callable
 
 import customtkinter as ctk
-from ui.theme import COLORS, FONTS, RADIUS
-from ui.components.field import Field
-from ui.components.divider import Divider
-from ui.screens.setup_screen import load_config, CONFIG_PATH
+
+from ui.theme    import COLORS, FONTS, RADIUS
+from src.context import WorkspaceContext
+from src.session import SessionGuard, InvalidCredentials, Session
 
 
-def _hash(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+class LoginScreen(ctk.CTkFrame):
+    """
+    Parameters
+    ----------
+    parent   : parent widget
+    ctx      : WorkspaceContext
+    on_login : Callable[[Session], None]
+    """
 
+    def __init__(self, parent, ctx: WorkspaceContext,
+                 on_login: Callable[[Session], None]) -> None:
+        super().__init__(parent, fg_color=COLORS["bg"])
+        self.pack(fill="both", expand=True)
+        self.grid_columnconfigure(0, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-# ── Login Screen ─────────────────────────────────────────────
+        self._ctx      = ctx
+        self._on_login = on_login
+        self._guard    = SessionGuard(ctx)
 
-class LoginScreen(ctk.CTk):
-    def __init__(self, on_success: Callable[[dict], None]) -> None:
-        super().__init__()
-        self._on_success = on_success
-        self._config     = load_config()
-        self._attempts   = 0
+        self._build()
+        self._check_saved_session()
 
-        ctk.set_appearance_mode("dark")
-        self.title("MZz System — Login")
-        self.geometry("440x560")
-        self.resizable(False, False)
-        self.configure(fg_color=COLORS["bg"])
-        self._center(440, 560)
-        self._build_login()
+    # ── Build ─────────────────────────────────────────────────
 
-    # ──────────────────────────────────────────────────────────
-    # Login View
-    # ──────────────────────────────────────────────────────────
+    def _build(self) -> None:
+        center = ctk.CTkFrame(self, fg_color="transparent")
+        center.grid(row=0, column=0)
+        center.grid_columnconfigure(0, weight=1)
 
-    def _build_login(self) -> None:
-        self._clear()
+        # Logo
+        ctk.CTkLabel(center, text="MZz",
+                     font=(FONTS["logo"][0], 52, "bold"),
+                     text_color=COLORS["accent"],
+                     ).grid(row=0, column=0, pady=(0, 2))
 
-        outer = ctk.CTkFrame(self, fg_color=COLORS["bg"])
-        outer.pack(fill="both", expand=True, padx=40, pady=40)
-
-        # Brand
-        ctk.CTkLabel(outer, text="MZz", font=FONTS["logo"],
-                     text_color=COLORS["accent"]).pack(anchor="w")
-        ctk.CTkLabel(outer, text=self._config.get("company_name", "System V1"),
-                     font=FONTS["subtitle"],
-                     text_color=COLORS["text_muted"]).pack(anchor="w")
-
-        Divider(outer).pack(fill="x", pady=(20, 28))
-
-        ctk.CTkLabel(outer, text="Welcome back",
-                     font=FONTS["title"], text_color=COLORS["text"]).pack(anchor="w")
-        ctk.CTkLabel(outer, text="Sign in to continue.",
+        ctk.CTkLabel(center,
+                     text=f"System V2.1  ·  {self._ctx.config.get('company_name','')}",
                      font=FONTS["body"], text_color=COLORS["text_muted"],
-                     ).pack(anchor="w", pady=(4, 24))
+                     ).grid(row=1, column=0, pady=(0, 32))
 
         # Card
-        card = ctk.CTkFrame(outer, fg_color=COLORS["surface"],
-                             corner_radius=RADIUS["lg"],
-                             border_width=1, border_color=COLORS["border"])
-        card.pack(fill="x")
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=24, pady=24)
+        card = ctk.CTkFrame(center, fg_color=COLORS["surface"],
+                            corner_radius=RADIUS["xl"],
+                            border_width=1, border_color=COLORS["border"],
+                            width=400)
+        card.grid(row=2, column=0)
+        card.grid_columnconfigure(0, weight=1)
 
-        self._username = tk.StringVar()
-        self._password = tk.StringVar()
+        ctk.CTkLabel(card, text="تسجيل الدخول",
+                     font=FONTS["title"], text_color=COLORS["text"], anchor="w",
+                     ).grid(row=0, column=0, sticky="w", padx=32, pady=(28, 20))
 
-        self._f_user = Field(inner, "Username", self._username,
-                             placeholder="Enter your username")
-        self._f_user.pack(fill="x", pady=(0, 14))
+        # Username
+        ctk.CTkLabel(card, text="اسم المستخدم",
+                     font=FONTS["label"], text_color=COLORS["text_muted"], anchor="w",
+                     ).grid(row=1, column=0, sticky="w", padx=32, pady=(0, 4))
+        self._user_var = tk.StringVar()
+        self._user_entry = ctk.CTkEntry(
+            card, textvariable=self._user_var,
+            font=FONTS["body"], height=44,
+            placeholder_text="أدخل اسم المستخدم",
+            fg_color=COLORS["surface2"], border_color=COLORS["border"],
+            border_width=1, corner_radius=RADIUS["md"],
+            text_color=COLORS["text"],
+        )
+        self._user_entry.grid(row=2, column=0, sticky="ew", padx=32, pady=(0, 14))
 
-        self._f_pass = Field(inner, "Password", self._password,
-                             placeholder="Enter your password", show="•")
-        self._f_pass.pack(fill="x")
+        # Password
+        ctk.CTkLabel(card, text="كلمة المرور",
+                     font=FONTS["label"], text_color=COLORS["text_muted"], anchor="w",
+                     ).grid(row=3, column=0, sticky="w", padx=32, pady=(0, 4))
+        self._pass_var = tk.StringVar()
+        self._pass_entry = ctk.CTkEntry(
+            card, textvariable=self._pass_var,
+            font=FONTS["body"], height=44, show="•",
+            placeholder_text="••••••••",
+            fg_color=COLORS["surface2"], border_color=COLORS["border"],
+            border_width=1, corner_radius=RADIUS["md"],
+            text_color=COLORS["text"],
+        )
+        self._pass_entry.grid(row=4, column=0, sticky="ew", padx=32, pady=(0, 8))
+        self._pass_entry.bind("<Return>", lambda _: self._submit())
 
-        # Error banner
-        self._err_banner = ctk.CTkLabel(
-            outer, text="", font=FONTS["body_sm"],
-            text_color=COLORS["error"], fg_color=COLORS["error_dim"],
-            corner_radius=RADIUS["md"], height=36,
+        # Remember me
+        self._remember_var = tk.BooleanVar(value=True)
+        ctk.CTkCheckBox(
+            card, text="تذكرني", variable=self._remember_var,
+            font=FONTS["body_sm"], text_color=COLORS["text_muted"],
+            fg_color=COLORS["accent"], border_color=COLORS["border"],
+        ).grid(row=5, column=0, sticky="w", padx=32, pady=(0, 14))
+
+        # Error label
+        self._err_lbl = ctk.CTkLabel(
+            card, text="",
+            font=FONTS["body_sm"], text_color=COLORS["error"],
+            fg_color=COLORS["error_dim"], corner_radius=RADIUS["md"],
+            height=36,
         )
 
-        # Sign In button
-        self._btn = ctk.CTkButton(
-            outer, text="Sign In  →",
-            font=FONTS["btn"], height=46,
+        # Login button
+        self._login_btn = ctk.CTkButton(
+            card, text="دخول",
+            font=FONTS["btn"], height=48,
             corner_radius=RADIUS["md"],
             fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
             text_color=COLORS["text_inverse"],
-            command=self._login,
+            command=self._submit,
         )
-        self._btn.pack(fill="x", pady=(20, 0))
+        self._login_btn.grid(row=7, column=0, sticky="ew",
+                             padx=32, pady=(0, 28))
 
-        # Forgot password link
-        ctk.CTkButton(
-            outer,
-            text="Forgot password?",
-            font=FONTS["caption"],
-            fg_color="transparent",
-            hover_color=COLORS["surface2"],
-            text_color=COLORS["text_dim"],
-            height=28,
-            command=self._build_reset,
-        ).pack(pady=(10, 0))
+        # Session info
+        self._session_lbl = ctk.CTkLabel(
+            card, text="",
+            font=FONTS["caption"], text_color=COLORS["text_dim"],
+        )
+        self._session_lbl.grid(row=8, column=0, pady=(0, 16))
 
-        self.bind("<Return>", lambda _: self._login())
-        self._f_user.focus()
+        # Workspace path
+        ctk.CTkLabel(
+            center,
+            text=f"📂  {self._ctx.workspace.root}",
+            font=FONTS["caption"], text_color=COLORS["text_dim"],
+        ).grid(row=3, column=0, pady=(16, 0))
 
-    def _login(self) -> None:
-        if self._btn.cget("state") == "disabled":
-            return
+        self._card = card
 
-        username = self._username.get().strip()
-        password = self._password.get()
+    # ── Auto-login ────────────────────────────────────────────
 
-        self._f_user.clear_error()
-        self._f_pass.clear_error()
-        self._hide_banner()
-
-        if not username:
-            self._f_user.show_error("Username is required.")
-            return
-        if not password:
-            self._f_pass.show_error("Password is required.")
-            return
-
-        if (username == self._config["admin_username"] and
-                _hash(password) == self._config["admin_password"]):
-            self._btn.configure(text="✓  Signing in…",
-                                 fg_color=COLORS["success"], state="disabled")
-            self.after(600, self._proceed)
-        else:
-            self._attempts += 1
-            self._show_banner(
-                f"  ✗  Incorrect username or password.  (Attempt {self._attempts})"
+    def _check_saved_session(self) -> None:
+        """تحقق من وجود جلسة محفوظة وصالحة."""
+        if self._guard.has_saved_session():
+            session = self._guard.restore()
+            remaining = session.time_remaining()
+            hours = int(remaining.total_seconds() // 3600)
+            mins  = int((remaining.total_seconds() % 3600) // 60)
+            self._session_lbl.configure(
+                text=f"🔐  جلسة نشطة — {session.username}  "
+                     f"({hours}س {mins}د متبقية)",
+                text_color=COLORS["success"],
             )
-            self._password.set("")
-            self._f_pass.focus()
+            self._user_var.set(session.username)
+            # Auto-login بعد 1.5 ثانية
+            self.after(1500, lambda: self._on_login(session))
 
-    def _proceed(self) -> None:
-        self.destroy()
-        self._on_success(self._config)
+    # ── Submit ────────────────────────────────────────────────
 
-    # ──────────────────────────────────────────────────────────
-    # Reset Password View
-    # ──────────────────────────────────────────────────────────
+    def _submit(self) -> None:
+        self._err_lbl.grid_forget()
+        username = self._user_var.get().strip()
+        password = self._pass_var.get()
 
-    def _build_reset(self) -> None:
-        self._clear()
-        self.unbind("<Return>")
-
-        outer = ctk.CTkFrame(self, fg_color=COLORS["bg"])
-        outer.pack(fill="both", expand=True, padx=40, pady=40)
-
-        # Brand
-        ctk.CTkLabel(outer, text="MZz", font=FONTS["logo"],
-                     text_color=COLORS["accent"]).pack(anchor="w")
-        ctk.CTkLabel(outer, text=self._config.get("company_name", "System V1"),
-                     font=FONTS["subtitle"],
-                     text_color=COLORS["text_muted"]).pack(anchor="w")
-
-        Divider(outer).pack(fill="x", pady=(20, 28))
-
-        ctk.CTkLabel(outer, text="Reset Password",
-                     font=FONTS["title"], text_color=COLORS["text"]).pack(anchor="w")
-        ctk.CTkLabel(outer,
-                     text="Verify your company name to set a new password.",
-                     font=FONTS["body"], text_color=COLORS["text_muted"],
-                     wraplength=360, justify="left",
-                     ).pack(anchor="w", pady=(4, 24))
-
-        # Card
-        card = ctk.CTkFrame(outer, fg_color=COLORS["surface"],
-                             corner_radius=RADIUS["lg"],
-                             border_width=1, border_color=COLORS["border"])
-        card.pack(fill="x")
-        inner = ctk.CTkFrame(card, fg_color="transparent")
-        inner.pack(fill="x", padx=24, pady=24)
-
-        self._r_company  = tk.StringVar()
-        self._r_password = tk.StringVar()
-        self._r_confirm  = tk.StringVar()
-
-        self._rf_company  = Field(inner, "Company Name", self._r_company,
-                                  placeholder="Enter your company name")
-        self._rf_company.pack(fill="x", pady=(0, 14))
-
-        self._rf_password = Field(inner, "New Password", self._r_password,
-                                  placeholder="At least 6 characters", show="•")
-        self._rf_password.pack(fill="x", pady=(0, 14))
-
-        self._rf_confirm  = Field(inner, "Confirm New Password", self._r_confirm,
-                                  placeholder="Repeat new password", show="•")
-        self._rf_confirm.pack(fill="x")
-
-        # Success / error banner
-        self._reset_banner = ctk.CTkLabel(
-            outer, text="", font=FONTS["body_sm"],
-            text_color=COLORS["error"], fg_color=COLORS["error_dim"],
-            corner_radius=RADIUS["md"], height=36,
-        )
-
-        # Reset button
-        self._reset_btn = ctk.CTkButton(
-            outer, text="Reset Password  →",
-            font=FONTS["btn"], height=46,
-            corner_radius=RADIUS["md"],
-            fg_color=COLORS["accent"], hover_color=COLORS["accent_hover"],
-            text_color=COLORS["text_inverse"],
-            command=self._do_reset,
-        )
-        self._reset_btn.pack(fill="x", pady=(20, 0))
-
-        # Back link
-        ctk.CTkButton(
-            outer,
-            text="← Back to Login",
-            font=FONTS["caption"],
-            fg_color="transparent",
-            hover_color=COLORS["surface2"],
-            text_color=COLORS["text_dim"],
-            height=28,
-            command=self._build_login,
-        ).pack(pady=(10, 0))
-
-        self.bind("<Return>", lambda _: self._do_reset())
-        self._rf_company.focus()
-
-    def _do_reset(self) -> None:
-        company  = self._r_company.get().strip()
-        password = self._r_password.get()
-        confirm  = self._r_confirm.get()
-
-        self._rf_company.clear_error()
-        self._rf_password.clear_error()
-        self._rf_confirm.clear_error()
-        self._reset_banner.pack_forget()
-
-        ok = True
-
-        # Verify company name (case-insensitive)
-        if not company:
-            self._rf_company.show_error("Company name is required.")
-            ok = False
-        elif company.lower() != self._config.get("company_name", "").lower():
-            self._rf_company.show_error("Company name does not match our records.")
-            ok = False
-
-        if len(password) < 6:
-            self._rf_password.show_error("Password must be at least 6 characters.")
-            ok = False
-
-        if password != confirm:
-            self._rf_confirm.show_error("Passwords do not match.")
-            ok = False
-
-        if not ok:
+        if not username or not password:
+            self._show_error("أدخل اسم المستخدم وكلمة المرور")
             return
 
-        # Save new password
-        self._config["admin_password"] = _hash(password)
-        CONFIG_PATH.write_text(
-            json.dumps(self._config, indent=2), encoding="utf-8"
-        )
+        self._login_btn.configure(state="disabled", text="⏳  جاري التحقق...")
 
-        # Success feedback → back to login
-        self._reset_btn.configure(
-            text="✓  Password Updated",
-            fg_color=COLORS["success"],
-            state="disabled",
-        )
-        self.after(1000, self._build_login)
+        try:
+            session = self._guard.login(
+                username, password,
+                remember=self._remember_var.get(),
+            )
+            self._login_btn.configure(
+                text="✓  تم الدخول",
+                fg_color=COLORS["success"],
+            )
+            self.after(400, lambda: self._on_login(session))
 
-    # ──────────────────────────────────────────────────────────
-    # Helpers
-    # ──────────────────────────────────────────────────────────
+        except InvalidCredentials:
+            self._show_error("اسم المستخدم أو كلمة المرور غير صحيحة")
+            self._login_btn.configure(state="normal", text="دخول")
+            self._pass_var.set("")
+            self._pass_entry.focus()
 
-    def _clear(self) -> None:
-        for widget in self.winfo_children():
-            widget.destroy()
+        except Exception as e:
+            self._show_error(f"خطأ: {e}")
+            self._login_btn.configure(state="normal", text="دخول")
 
-    def _show_banner(self, msg: str) -> None:
-        self._err_banner.configure(text=msg)
-        self._err_banner.pack(fill="x", pady=(14, 0))
-
-    def _hide_banner(self) -> None:
-        self._err_banner.pack_forget()
-
-    def _center(self, w: int, h: int) -> None:
-        self.update_idletasks()
-        x = (self.winfo_screenwidth()  - w) // 2
-        y = (self.winfo_screenheight() - h) // 2
-        self.geometry(f"{w}x{h}+{x}+{y}")
+    def _show_error(self, msg: str) -> None:
+        self._err_lbl.configure(text=f"  ✗  {msg}")
+        self._err_lbl.grid(row=6, column=0, sticky="ew",
+                           padx=32, pady=(0, 10))
